@@ -172,9 +172,10 @@ PRODUCT_PACKAGES += \
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/configs/flashled_calc_parameters.cfg:system/etc/flashled_calc_parameters.cfg
 
-# Health
+# Health HAL
 PRODUCT_PACKAGES += \
-    android.hardware.health@1.0-impl
+    android.hardware.health@2.0-impl \
+    android.hardware.health@2.0-service
 
 # Init
 PRODUCT_COPY_FILES += \
