@@ -79,10 +79,12 @@ PRODUCT_PACKAGES += \
     audiod \
     audio.a2dp.default \
     android.hardware.audio@2.0-impl \
-    android.hardware.audio@4.0-impl \
     android.hardware.audio@2.0-service \
+    android.hardware.audio@5.0-impl \
+    android.hardware.audio.common@5.0 \
+    android.hardware.audio.common@5.0-util \
     android.hardware.audio.effect@2.0-impl \
-    android.hardware.audio.effect@4.0-impl \
+    android.hardware.audio.effect@5.0-impl \
     audio.primary.msm8994 \
     audio.r_submix.default \
     audio.usb.default \
