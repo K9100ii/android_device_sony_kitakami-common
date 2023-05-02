@@ -364,18 +364,16 @@ void CameraService::addStates(const String8 id) {
     std::string cameraId(id.c_str());
     hardware::camera::common::V1_0::CameraResourceCost cost;
     status_t res = mCameraProviderManager->getResourceCost(cameraId, &cost);
+    SystemCameraKind deviceKind = SystemCameraKind::PUBLIC;
     if (res != OK) {
         ALOGE("Failed to query device resource cost: %s (%d)", strerror(-res), res);
         return;
     }
-    SystemCameraKind deviceKind = SystemCameraKind::PUBLIC;
     res = mCameraProviderManager->getSystemCameraKind(cameraId, &deviceKind);
     if (res != OK) {
         ALOGE("Failed to query device kind: %s (%d)", strerror(-res), res);
         return;
     }
-    std::vector<std::string> physicalCameraIds;
-    mCameraProviderManager->isLogicalCamera(cameraId, &physicalCameraIds);
     std::set<String8> conflicting;
     for (size_t i = 0; i < cost.conflictingDevices.size(); i++) {
         conflicting.emplace(String8(cost.conflictingDevices[i].c_str()));
@@ -384,7 +382,7 @@ void CameraService::addStates(const String8 id) {
     {
         Mutex::Autolock lock(mCameraStatesLock);
         mCameraStates.emplace(id, std::make_shared<CameraState>(id, cost.resourceCost,
-                conflicting, deviceKind, physicalCameraIds));
+                                                                conflicting, deviceKind));
     }
 
     if (mFlashlight->hasFlashUnit(id)) {
@@ -1034,11 +1032,7 @@ int32_t CameraService::mapToInterface(StatusInternal status) {
 Status CameraService::initializeShimMetadata(int cameraId) {
     int uid = CameraThreadState::getCallingUid();
 
-#ifdef NO_CAMERA_SERVER
-    String16 internalPackageName("media");
-#else
     String16 internalPackageName("cameraserver");
-#endif
     String8 id = String8::format("%d", cameraId);
     Status ret = Status::ok();
     sp<Client> tmp = nullptr;
@@ -1120,9 +1114,7 @@ Status CameraService::getLegacyParametersLazy(int cameraId,
 static bool isTrustedCallingUid(uid_t uid) {
     switch (uid) {
         case AID_MEDIA:        // mediaserver
-#ifndef NO_CAMERA_SERVER
         case AID_CAMERASERVER: // cameraserver
-#endif
         case AID_RADIO:        // telephony
             return true;
         default:
@@ -1255,7 +1247,6 @@ Status CameraService::validateClientPermissionsLocked(const String8& cameraId,
                 clientName8.string(), clientUid, clientPid, cameraId.string());
     }
 
-#ifndef NO_CAMERA_SERVER
     // Make sure the UID is in an active state to use the camera
     if (!mUidPolicy->isUidActive(callingUid, String16(clientName8))) {
         int32_t procState = mUidPolicy->getProcState(callingUid);
@@ -1267,7 +1258,6 @@ Status CameraService::validateClientPermissionsLocked(const String8& cameraId,
                 clientName8.string(), clientUid, clientPid, cameraId.string(),
                 callingUid, procState);
     }
-#endif
 
     // If sensor privacy is enabled then prevent access to the camera
     if (mSensorPrivacyPolicy->isSensorPrivacyEnabled()) {
@@ -1291,9 +1281,9 @@ Status CameraService::validateClientPermissionsLocked(const String8& cameraId,
         ALOGE("CameraService::connect X (PID %d) rejected (cannot connect from "
                 "device user %d, currently allowed device users: %s)", callingPid, clientUserId,
                 toString(mAllowedUsers).string());
-        /*return STATUS_ERROR_FMT(ERROR_PERMISSION_DENIED,
+        return STATUS_ERROR_FMT(ERROR_PERMISSION_DENIED,
                 "Callers from device user %d are not currently allowed to connect to camera \"%s\"",
-                clientUserId, cameraId.string());*/
+                clientUserId, cameraId.string());
     }
 
     return Status::ok();
@@ -1759,12 +1749,6 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
     String8 clientName8(clientPackageName);
 
     int originalClientPid = 0;
-
-    // If the upper layer does not assign HAL version with API 1, then set HAL1 by default
-    if (strcmp(clientName8.string(), String8("com.oneplus.camera")) == 0 && 
-            effectiveApiLevel == API_1 && halVersion== CAMERA_HAL_API_VERSION_UNSPECIFIED) {
-        halVersion = CAMERA_DEVICE_API_VERSION_1_0;
-    }
 
     ALOGI("CameraService::connect call (PID %d \"%s\", camera ID %s) for HAL version %s and "
             "Camera API version %d", clientPid, clientName8.string(), cameraId.string(),
@@ -2710,8 +2694,7 @@ bool CameraService::evictClientIdByRemote(const wp<IBinder>& remote) {
                 ret = true;
             }
         }
-        //clear the evicted client list before acquring service lock again.
-        evicted.clear();
+
         // Reacquire mServiceLock
         mServiceLock.lock();
 
@@ -3760,10 +3743,9 @@ bool CameraService::SensorPrivacyPolicy::hasCameraPrivacyFeature() {
 // ----------------------------------------------------------------------------
 
 CameraService::CameraState::CameraState(const String8& id, int cost,
-        const std::set<String8>& conflicting, SystemCameraKind systemCameraKind,
-        const std::vector<std::string>& physicalCameras) : mId(id),
+        const std::set<String8>& conflicting, SystemCameraKind systemCameraKind) : mId(id),
         mStatus(StatusInternal::NOT_PRESENT), mCost(cost), mConflicting(conflicting),
-        mSystemCameraKind(systemCameraKind), mPhysicalCameras(physicalCameras) {}
+        mSystemCameraKind(systemCameraKind) {}
 
 CameraService::CameraState::~CameraState() {}
 
@@ -3800,11 +3782,6 @@ String8 CameraService::CameraState::getId() const {
 
 SystemCameraKind CameraService::CameraState::getSystemCameraKind() const {
     return mSystemCameraKind;
-}
-
-bool CameraService::CameraState::containsPhysicalCamera(const std::string& physicalCameraId) const {
-    return std::find(mPhysicalCameras.begin(), mPhysicalCameras.end(), physicalCameraId)
-            != mPhysicalCameras.end();
 }
 
 bool CameraService::CameraState::addUnavailablePhysicalId(const String8& physicalId) {
@@ -4437,9 +4414,18 @@ std::list<String16> CameraService::getLogicalCameras(
     std::list<String16> retList;
     Mutex::Autolock lock(mCameraStatesLock);
     for (const auto& state : mCameraStates) {
-        if (state.second->containsPhysicalCamera(physicalCameraId.c_str())) {
-            retList.emplace_back(String16(state.first));
+        std::vector<std::string> physicalCameraIds;
+        if (!mCameraProviderManager->isLogicalCamera(state.first.c_str(), &physicalCameraIds)) {
+            // This is not a logical multi-camera.
+            continue;
         }
+        if (std::find(physicalCameraIds.begin(), physicalCameraIds.end(), physicalCameraId.c_str())
+                == physicalCameraIds.end()) {
+            // cameraId is not a physical camera of this logical multi-camera.
+            continue;
+        }
+
+        retList.emplace_back(String16(state.first));
     }
     return retList;
 }

@@ -149,20 +149,11 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
             // Do not override characteristics for physical cameras
             res = manager->getCameraCharacteristics(
                     physicalId, /*overrideForPerfClass*/false, &mPhysicalDeviceInfoMap[physicalId]);
-            // HACK for ginkgo - check camera id 20 for depth sensor
             if (res != OK) {
-                CLOGW("Could not retrieve camera %s characteristics: %s (%d)",
+                SET_ERR_L("Could not retrieve camera %s characteristics: %s (%d)",
                         physicalId.c_str(), strerror(-res), res);
-                physicalId = std::to_string(20); // TODO: Maybe make this a soong config?
-                CLOGW("Trying physical camera %s if available", physicalId.c_str());
-                res = manager->getCameraCharacteristics(
-                        physicalId, false, &mPhysicalDeviceInfoMap[physicalId]);
-                if (res != OK) {
-                    SET_ERR_L("Could not retrieve camera %s characteristics: %s (%d)",
-                            physicalId.c_str(), strerror(-res), res);
-                    session->close();
-                    return res;
-                }
+                session->close();
+                return res;
             }
 
             bool usePrecorrectArray =
@@ -4425,15 +4416,9 @@ status_t Camera3Device::RequestThread::clear(
 
 status_t Camera3Device::RequestThread::flush() {
     ATRACE_CALL();
-    status_t flush_status;
     Mutex::Autolock l(mFlushLock);
 
-    flush_status = mInterface->flush();
-    // We have completed flush, signal RequestThread::waitForNextRequestLocked() to no longer wait for
-    // new requests
-    mRequestSignal.signal();
-
-    return flush_status;
+    return mInterface->flush();
 }
 
 void Camera3Device::RequestThread::setPaused(bool paused) {
