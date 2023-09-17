@@ -725,10 +725,6 @@ service cameraserver /system/bin/cameraserver_kitakami
     writepid /dev/cpuset/camera-daemon/tasks /dev/stune/top-app/tasks
     rlimit rtprio 10 10
 
-on property:sys.boot_completed=1
-    rm /data/system/perfd/default_values
-    start vendor.perfd
-
 on property:service.usb.otg.switch=check
     write /sys/module/qpnp_smbcharger_extension/parameters/start_id_polling 1
     setprop service.usb.otg_switch check_done
